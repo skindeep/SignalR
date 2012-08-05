@@ -17,6 +17,7 @@ namespace SignalR
         private readonly HashSet<string> _signals;
         private readonly SafeSet<string> _groups;
         private readonly ITraceManager _trace;
+        private readonly IPerformanceCounterWriter _counters;
         private bool _disconnected;
         private bool _aborted;
 
@@ -26,7 +27,8 @@ namespace SignalR
                           string connectionId,
                           IEnumerable<string> signals,
                           IEnumerable<string> groups,
-                          ITraceManager traceManager)
+                          ITraceManager traceManager,
+                          IPerformanceCounterWriter performanceCounterWriter)
         {
             _messageBus = messageBus;
             _serializer = jsonSerializer;
@@ -35,6 +37,7 @@ namespace SignalR
             _signals = new HashSet<string>(signals);
             _groups = new SafeSet<string>(groups);
             _trace = traceManager;
+            _counters = performanceCounterWriter;
         }
 
         private IEnumerable<string> Signals
@@ -101,6 +104,9 @@ namespace SignalR
 
             Trace.TraceInformation("Connection '{0}' received {1} messages, last id {2}", _connectionId, result.Messages.Count, result.LastMessageId);
 
+            _counters.IncrementBy(PerformanceCounters.ConnectionMessagesReceived, result.Messages.Count);
+            _counters.IncrementBy(PerformanceCounters.ConnectionMessagesReceivedPerSec, result.Messages.Count);
+
             return response;
         }
 
@@ -144,6 +150,9 @@ namespace SignalR
         private Task SendMessage(string key, object value)
         {
             TraceSend(key, value);
+
+            _counters.Increment(PerformanceCounters.ConnectionMessagesSent);
+            _counters.Increment(PerformanceCounters.ConnectionMessagesSentPerSecond);
 
             var wrappedValue = new WrappedValue(value, _serializer);
             return _messageBus.Send(_connectionId, key, wrappedValue).Catch();
